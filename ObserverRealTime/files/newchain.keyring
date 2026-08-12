@@ -1,0 +1,35 @@
+# =============================================================================
+#  newchain.keyring - UA keys for the NEW DET chain (RAA 255 / HDA 14340)
+#
+#  WHY THIS FILE EXISTS
+#  The identities compiled into the trust anchor are all on the OLD chain
+#  (2001:30:fa07:d005:...). The reference capture CaptureWithDNS4.txt carries
+#  three UAs on the NEW chain (2001:30:3ff8:405:...), so a run without this
+#  file verifies NOTHING and reports E-KEY-01 x11,002.
+#
+#  These were DERIVED, not invented, using the procedure bench.keyring already
+#  documents, with RAA=255 / HDA=14340 instead of 1000/2000:
+#
+#      slot_seed = lambda i: det.shake128(("DRIP PoC UA slot %d" % i).encode(), 32)
+#      pub  = ed25519.derive_pubkey(slot_seed(i))
+#      d    = det.compute_det(pub, 255, 14340)
+#      assert det.verify_det_binding(d, pub)      # holds for both rows below
+#
+#  USE:
+#      python3 observer.py capture.txt --keyring newchain.keyring
+#      python3 run_live.py --port COM4 --keyring newchain.keyring
+#
+#  *** SLOT 0 IS MISSING ***
+#  The third UA in the capture, 2001:30:3ff8:405:d952:5618:fbc9:c3cf, derives
+#  from NEITHER the legacy seed0 NOR slot_seed(0). Its public key must come from
+#  the firmware's boot printout or from DNS. Until then that drone stays
+#  "NOT on file - signatures unchecked" in both the live view and the report.
+#
+#  TEST IDENTITIES. No IANA registration stands behind any of them
+#  (RFC 9374 3.3).
+# =============================================================================
+
+# --- slot 1 : MAC 02:44:52:49:50:01 ---
+200100303FF80405841243235D3CA050  F7D792E5DD000E8C05DCEEB357D03AF1770B0D7D6BFE429AABBD3C3F1CB16FE2
+# --- slot 2 : MAC 02:44:52:49:50:02 ---
+200100303FF80405A57E87AB5388CBB8  B80BC263962420FBF1454E61BB149FCD1BDC447195B12D63C69E7FB7AEAAC3AC

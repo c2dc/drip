@@ -1,0 +1,93 @@
+# =============================================================================
+#  bench.keyring — DRIP observer keyring
+#
+#  Maps a DRIP Entity Tag (DET) to the Ed25519 public key that must have signed
+#  for it. RFC 9374 §3.5.2 binds a DET to exactly one key, so a fleet cannot be
+#  validated with a single key: each UA is checked against its own.
+#
+#  USE:
+#      python3 observer.py capture.txt --keyring bench.keyring
+#
+#  NOTE: you do NOT need this file for the standard 1-3 drone bench fleet — the
+#  three identities below are already compiled into observer.py (BUILTIN_KEYS).
+#  Check with:
+#      python3 observer.py --list-keys
+#
+#  This file is for: a 4th+ drone, a different RAA/HDA hierarchy, someone else's
+#  capture, or overriding a built-in entry.
+#
+# -----------------------------------------------------------------------------
+#  FORMAT
+#      <DET_HEX>  <PUBKEY_HEX>
+#
+#      DET_HEX     exactly 32 hex chars (16 bytes) — the DET, no colons
+#      PUBKEY_HEX  exactly 64 hex chars (32 bytes) — the Ed25519 public key (HI)
+#
+#      * one entry per line, separated by any whitespace
+#      * '#' starts a comment; the rest of the line is ignored
+#      * blank lines are ignored
+#      * case-insensitive
+#      * a malformed line is REJECTED with file:line — never silently skipped
+#      * entries here OVERRIDE the built-ins for the same DET
+#
+#  PUBLIC KEYS ONLY. Never put an Ed25519 private seed in this file — the
+#  observer neither wants nor accepts one. It only ever verifies.
+#
+# -----------------------------------------------------------------------------
+#  RELATED FLAGS
+#      --pubkey HEX        a WILDCARD: used for any DET with no entry here.
+#                          One only — it is not bound to a DET, so it cannot
+#                          express a fleet. Use it for a single unknown drone.
+#      --no-builtin-keys   ignore the three compiled-in identities; this file
+#                          (and/or --pubkey) becomes the whole keyring.
+#      --list-keys         print the resulting keyring and exit.
+#
+# -----------------------------------------------------------------------------
+#  REPRODUCING THESE VALUES (they are derived, not invented)
+#
+#  From the project's own Python reference implementations, in ObserverFiles/:
+#
+#      import det, ed25519, ipaddress
+#
+#      # slot 0 is the LEGACY identity: its seed predates the slot table
+#      seed0 = bytes.fromhex("568BF5E8F08ABAADB68BA1964BC25F29"
+#                            "76A8AFC938244A39F76E0AB0C703CCD6")
+#
+#      # slots 1..N derive from a documented string — no stored secret
+#      slot_seed = lambda i: det.shake128(("DRIP PoC UA slot %d" % i).encode(), 32)
+#
+#      for i in range(3):
+#          seed = seed0 if i == 0 else slot_seed(i)
+#          pub  = ed25519.derive_pubkey(seed)
+#          d    = det.compute_det(pub, det.TEST_RAA, det.TEST_HDA)   # 1000, 2000
+#          assert det.verify_det_binding(d, pub)
+#          print(d.hex().upper(), pub.hex().upper())
+#
+#  The output must equal the rows below, the DETs the firmware prints at boot,
+#  and det_generator.cpp's IDENTITY_TABLE.
+#
+#  *** TEST IDENTITIES. No IANA registration stands behind any of them
+#  *** (RFC 9374 §3.3). All three share RAA=1000 / HDA=2000 — one HDA
+#  *** registering several UAs, which is the real hierarchy shape
+#  *** (RFC 9575 §6.4.2). Only the key-derived ORCHID hash differs.
+# =============================================================================
+
+# --- slot 0 : MAC 02:44:52:49:50:00 -----------------------------------------
+# DET 2001:0030:FA07:D005:31E0:1AED:4E7E:CF5C
+# the original single-drone PoC identity — `fleet 1` puts exactly this on the air
+20010030FA07D00531E01AED4E7ECF5C  8B65B265A496E32046CFA378B5A5FB2E877A97723E557CB5F0D21848BFE94477
+
+# --- slot 1 : MAC 02:44:52:49:50:01 -----------------------------------------
+# DET 2001:0030:FA07:D005:F3B6:6F58:E30E:AD97
+20010030FA07D005F3B66F58E30EAD97  F7D792E5DD000E8C05DCEEB357D03AF1770B0D7D6BFE429AABBD3C3F1CB16FE2
+
+# --- slot 2 : MAC 02:44:52:49:50:02 -----------------------------------------
+# DET 2001:0030:FA07:D005:5584:4FA7:8F0D:14D7
+20010030FA07D00555844FA78F0D14D7  B80BC263962420FBF1454E61BB149FCD1BDC447195B12D63C69E7FB7AEAAC3AC
+
+# --- a 4th drone would go here ------------------------------------------------
+# Add a row to det_generator.cpp's IDENTITY_TABLE (see the snippet in that file),
+# raise DET_IDENTITY_SLOTS and FLEET_MAX, add a MAC to beacon_tx_raw.cpp, then
+# paste its DET + public key below:
+#
+# <DET_HEX 32 chars>              <PUBKEY_HEX 64 chars>

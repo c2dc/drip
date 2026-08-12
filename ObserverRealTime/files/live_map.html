@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<!-- =========================================================================
+     DRIP Observer - live_map.html
+     Real-time view of drones currently being detected over the air.
+
+     Polls /state.json once per second. The capture rate is NOT this rate:
+     every frame the sniffer emits is decoded and validated as it arrives
+     (~4.7 frames/s measured on the reference capture). This page only asks
+     "what does the world look like now" once a second.
+
+     Findings are rendered as PLAIN TEXT with no colour or severity styling,
+     by design decision. The RFC 9575 Appendix A authentication-state colour
+     scheme is deliberately NOT implemented here.
+
+     The only saturated colours on the page are the per-drone identity colours,
+     taken from make_map.py's PALETTE so the live view and the post-flight map
+     agree about which drone is which.
+     ========================================================================= -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DRIP Observer - live</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root{
+    /* Aeronautical chart: paper, ink, and a single dry accent. The drone
+       PALETTE supplies the only saturated colour, so identity reads first. */
+    --paper:#F2EFE6;
+    --paper-2:#E7E2D5;
+    --ink:#16202B;
+    --ink-2:#4A5765;
+    --rule:#C6BFAE;
+    --accent:#8A6E3B;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:"Helvetica Neue",Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    display:grid;grid-template-columns:minmax(0,1fr) 430px;
+    background:var(--paper);color:var(--ink);font-family:var(--sans);
+  }
+  #map{height:100vh}
+
+  aside{
+    height:100vh;overflow-y:auto;border-left:1px solid var(--rule);
+    background:var(--paper);
+  }
+  header{
+    padding:14px 18px 12px;border-bottom:1px solid var(--rule);
+    background:var(--paper-2);position:sticky;top:0;z-index:5;
+  }
+  h1{
+    margin:0;font-size:13px;font-weight:700;letter-spacing:.16em;
+    text-transform:uppercase;
+  }
+  .sub{
+    margin-top:5px;font-family:var(--mono);font-size:11px;color:var(--ink-2);
+    line-height:1.6;
+  }
+  .warn{color:#8C2B18;font-weight:700}
+
+  /* Flight progress strip - the ATC vernacular this data actually belongs to.
+     One strip per aircraft; the colour bar is the identity. */
+  .strip{border-bottom:1px solid var(--rule);padding:12px 18px 14px}
+  .strip-head{display:flex;align-items:baseline;gap:9px}
+  .bar{
+    width:5px;align-self:stretch;min-height:34px;flex:0 0 5px;border-radius:1px;
+  }
+  .det{
+    font-family:var(--mono);font-size:12px;font-weight:700;word-break:break-all;
+    line-height:1.35;
+  }
+  .meta{
+    font-family:var(--mono);font-size:11px;color:var(--ink-2);
+    margin-top:5px;line-height:1.65;
+  }
+  .tag{
+    font-family:var(--mono);font-size:10px;letter-spacing:.08em;
+    text-transform:uppercase;border:1px solid var(--ink-2);
+    padding:1px 5px;border-radius:2px;color:var(--ink-2);white-space:nowrap;
+  }
+  .findings{
+    margin-top:9px;padding-top:8px;border-top:1px dashed var(--rule);
+    font-family:var(--mono);font-size:11px;line-height:1.65;
+    white-space:pre-wrap;word-break:break-word;
+  }
+  .findings .none{color:var(--ink-2)}
+  .sample{color:var(--ink-2);padding-left:2ch}
+
+  footer{
+    padding:12px 18px 22px;font-family:var(--mono);font-size:10.5px;
+    color:var(--ink-2);line-height:1.7;
+  }
+  footer b{color:var(--ink)}
+  .empty{padding:26px 18px;font-family:var(--mono);font-size:12px;color:var(--ink-2)}
+
+  /* Test-clock banner. Hazard striping, because a run on a doctored clock must
+     be impossible to mistake for a clean one - including in a screenshot. */
+  #banner{display:none}
+  #banner.on{
+    display:block;padding:10px 18px;color:#2A1500;font-family:var(--mono);
+    font-size:11px;line-height:1.6;font-weight:700;
+    border-bottom:2px solid #2A1500;
+    background:repeating-linear-gradient(135deg,#F5C542 0 14px,#E0A81E 14px 28px);
+  }
+  #banner span{font-weight:400}
+
+  details.tools{
+    border-top:1px solid var(--rule);padding:12px 18px;font-family:var(--mono);
+    font-size:11px;color:var(--ink-2);
+  }
+  details.tools summary{cursor:pointer;color:var(--ink);letter-spacing:.04em}
+  details.tools .body{padding-top:10px;line-height:1.7}
+  details.tools input{
+    font-family:var(--mono);font-size:11px;padding:4px 6px;
+    border:1px solid var(--rule);background:var(--paper);color:var(--ink);
+  }
+  details.tools button{
+    font-family:var(--mono);font-size:11px;padding:4px 10px;cursor:pointer;
+    border:1px solid var(--ink-2);background:var(--paper-2);color:var(--ink);
+  }
+  details.tools button:hover{background:var(--paper)}
+
+  @media (max-width:900px){
+    body{grid-template-columns:1fr;grid-template-rows:52vh 48vh}
+    #map{height:52vh}
+    aside{height:48vh}
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<aside>
+  <div id="banner"></div>
+  <header>
+    <h1>DRIP Observer &mdash; live</h1>
+    <div class="sub" id="hdr">connecting&hellip;</div>
+  </header>
+  <div id="panel"><div class="empty">Waiting for the first frame&hellip;</div></div>
+  <details class="tools">
+    <summary>Test clock override</summary>
+    <div class="body">
+      For a bench whose transmitter has no RTC, GNSS or NTP. It replaces the
+      reference time used for <b>E-LINK-04</b> and <b>E-FRESH-01</b> only.<br><br>
+      <b>It does not correct the aircraft.</b> It makes this observer agree with
+      a clock known to be wrong, so any run with it set is a bench exercise and
+      not evidence. Stale/drop timing always stays on the real clock.<br><br>
+      <input type="datetime-local" id="tclock" step="1">
+      <button id="tset">Apply</button>
+      <button id="tclr">Use real clock</button>
+      <div id="tmsg" style="padding-top:8px"></div>
+    </div>
+  </details>
+  <footer>
+    <b>This page is a monitoring view, not the conformance report.</b>
+    It judges each message with only what has arrived so far, so it can
+    disagree with a full run of <b>observer.py</b> over the finished capture
+    file. That batch run remains the authoritative result.
+  </footer>
+</aside>
+
+<script>
+const map = L.map('map', {zoomControl:true}).setView([0,0], 2);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom:19, attribution:'&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+const layers = {};        // drone key -> {line, marker}
+let framedOnce = false;
+
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function renderHeader(s){
+  const c = s.capture, sn = c.sniffer || {};
+  let out = 'frames ' + c.frames_ok.toLocaleString();
+  if (c.frames_damaged) out += '  damaged ' + c.frames_damaged;
+  out += '  drones ' + s.drones.length;
+  out += '  keys ' + s.config.keys_loaded;
+  out += '\n' + esc(s.now) + '   up ' + Math.round(s.uptime_s) + 's';
+  if (c.last_frame_age_s != null) out += '   last frame ' + c.last_frame_age_s + 's ago';
+  if (sn.captured != null){
+    out += '\nsniffer captured ' + sn.captured;
+    // dropped>0 means the ESP32's ring overflowed and frames never left the
+    // board - a DIFFERENT failure from W-CAP-01 (host-side serial loss).
+    out += (sn.dropped ? '  <span class="warn">dropped ' + sn.dropped +
+                         ' - CAPTURE INCOMPLETE</span>'
+                       : '  dropped 0');
+    if (sn.oversize) out += '  oversize ' + sn.oversize;
+  }
+  if (c.frames_skipped) out += '   <span class="warn">skipped ' +
+      c.frames_skipped + ' (see terminal)</span>';
+  if (s.warmup_remaining_s > 0){
+    out += '\n<span class="warn">warm-up ' + s.warmup_remaining_s +
+           's</span> - E-MAN-02/03 suppressed while the pack-hash set fills';
+  }
+  document.getElementById('hdr').innerHTML = out;
+}
+
+function findingsText(f){
+  if (!f.length) return '<span class="none">no findings</span>';
+  return f.map(x => {
+    let s = esc(x.id) + ' x' + x.count + '  ' + esc(x.description)
+          + '\n' + '  ' + esc(x.constraint)
+          + '\n' + '  first ' + esc(x.first) + '   last ' + esc(x.last);
+    const shown = x.samples.slice(0,3)
+        .map(v => '<span class="sample">' + esc(v) + '</span>').join('\n');
+    if (shown) s += '\n' + shown;
+    return s;
+  }).join('\n\n');
+}
+
+function renderBanner(s){
+  const b = document.getElementById('banner');
+  const t = s.time_override;
+  if (!t){ b.className = ''; b.textContent = ''; return; }
+  b.className = 'on';
+  b.innerHTML = 'TEST CLOCK ACTIVE &mdash; NOT A CONFORMANCE RESULT<br>' +
+    '<span>time-based checks (E-LINK-04, E-FRESH-01) are being evaluated at ' +
+    esc(t.iso) + ' instead of the real clock. The aircraft is unchanged.</span>';
+}
+
+function renderStrip(d){
+  const el = document.createElement('div');
+  el.className = 'strip';
+  const last = d.points.length ? d.points[d.points.length-1] : null;
+  let pos = 'no position yet';
+  if (last){
+    pos = last.lat.toFixed(6) + ', ' + last.lon.toFixed(6)
+        + (last.alt_m != null ? '   alt ' + last.alt_m.toFixed(1) + ' m' : '')
+        + (last.speed_mps != null ? '   ' + last.speed_mps.toFixed(1) + ' m/s' : '');
+  }
+  el.innerHTML =
+    '<div class="strip-head">' +
+      '<div class="bar" style="background:' + esc(d.color) + '"></div>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div class="det">' + esc(d.label) + '</div>' +
+      '</div>' +
+      '<span class="tag">' + esc(d.status) + '</span>' +
+    '</div>' +
+    '<div class="meta">' +
+      esc(pos) + '\n' +
+      'mac ' + esc(d.macs.join(', ')) + '\n' +
+      'frames ' + d.frames + '   packs ' + d.packs +
+      '   points ' + d.points.length +
+      '   last seen ' + (d.age_s == null ? '?' : d.age_s + 's ago') + '\n' +
+      'public key ' + (d.key_known ? 'on file' : 'NOT on file - signatures unchecked') +
+    '</div>' +
+    '<div class="findings">' + findingsText(d.findings) + '</div>';
+  return el;
+}
+
+function renderMap(s){
+  const seen = new Set();
+  const bounds = [];
+  s.drones.forEach(d => {
+    seen.add(d.key);
+    const pts = d.points.filter(p => p.lat != null && p.lon != null)
+                        .map(p => [p.lat, p.lon]);
+    if (!pts.length) return;
+    pts.forEach(p => bounds.push(p));
+    const head = pts[pts.length-1];
+    // A stale aircraft is drawn hollow: it is still on screen (inside the drop
+    // window) but is no longer being heard from.
+    const liveNow = d.status === 'live';
+    if (!layers[d.key]){
+      layers[d.key] = {
+        line: L.polyline(pts, {color:d.color, weight:3, opacity:.85}).addTo(map),
+        marker: L.circleMarker(head, {radius:7, color:d.color, weight:3,
+                  fillColor:d.color, fillOpacity:1}).addTo(map)
+      };
+    } else {
+      layers[d.key].line.setLatLngs(pts);
+      layers[d.key].marker.setLatLng(head);
+    }
+    layers[d.key].marker.setStyle({fillOpacity: liveNow ? 1 : 0});
+    layers[d.key].marker.bindTooltip(d.label + ' (' + d.status + ')',
+                                     {direction:'top'});
+  });
+  // Drop rule: a drone absent from the snapshot is no longer being detected,
+  // so it leaves the map too.
+  Object.keys(layers).forEach(k => {
+    if (!seen.has(k)){
+      map.removeLayer(layers[k].line);
+      map.removeLayer(layers[k].marker);
+      delete layers[k];
+    }
+  });
+  if (bounds.length && !framedOnce){
+    map.fitBounds(bounds, {padding:[40,40]});
+    framedOnce = true;                    // never steal the operator's pan/zoom
+  }
+}
+
+async function poll(){
+  try{
+    const r = await fetch('/state.json', {cache:'no-store'});
+    const s = await r.json();
+    if (s.error) throw new Error(s.error);
+    renderHeader(s);
+    renderBanner(s);
+    renderMap(s);
+
+    const panel = document.getElementById('panel');
+    panel.replaceChildren();
+    if (!s.drones.length){
+      const e = document.createElement('div');
+      e.className = 'empty';
+      e.textContent = 'No drones currently detected.';
+      panel.appendChild(e);
+    }
+    s.drones.forEach(d => panel.appendChild(renderStrip(d)));
+    if (s.unattributed){
+      const u = renderStrip(Object.assign({}, s.unattributed,
+        {points:[], macs:[], frames:0, packs:0, age_s:null, key_known:true,
+         status:'capture'}));
+      panel.appendChild(u);
+    }
+  }catch(e){
+    document.getElementById('hdr').innerHTML =
+      '<span class="warn">observer not responding</span> - ' + esc(e.message);
+  }
+}
+
+async function setClock(unix){
+  const msg = document.getElementById('tmsg');
+  try{
+    const r = await fetch('/set-time', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({unix: unix})
+    });
+    const j = await r.json();
+    msg.textContent = j.ok
+      ? (unix === null ? 'Back on the real clock.'
+                       : 'Test clock applied. This run is not evidence.')
+      : ('Failed: ' + j.error);
+  }catch(e){ msg.textContent = 'Failed: ' + e.message; }
+  poll();
+}
+
+document.getElementById('tset').addEventListener('click', () => {
+  const v = document.getElementById('tclock').value;
+  if (!v){ document.getElementById('tmsg').textContent = 'Pick a date and time first.'; return; }
+  // datetime-local is local wall time; Date parses it as such and getTime()
+  // gives UTC ms, so the observer always receives an unambiguous Unix time.
+  setClock(new Date(v).getTime() / 1000);
+});
+document.getElementById('tclr').addEventListener('click', () => setClock(null));
+
+poll();
+setInterval(poll, 1000);
+</script>
+</body>
+</html>

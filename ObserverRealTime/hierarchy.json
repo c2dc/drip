@@ -1,0 +1,67 @@
+{
+  "_comment": "DRIP trusted-identities. PUBLIC only. RAW-KEY DET method (RFC 9374 reference / det-gen.py). Two chains: 1000/2000 and 255/14340.",
+  "ua_raa": 255,
+  "ua_hda": 14340,
+  "apex": {
+    "raa": 0,
+    "hda": 0,
+    "det": "200100300000000570F9E8E9B564F448",
+    "public_key": "4FD099CCD47D7893DFE9EC24414ECB0D9B5420232AAD30D91C465BE33CBE65C4",
+    "_role": "Apex - owns 2001:30::/28"
+  },
+  "raas": [
+    {
+      "raa": 1000,
+      "hda": 0,
+      "det": "20010030FA0000056A45015A4EC8D3BD",
+      "public_key": "DDE3BCCEC7F3A66A1115F45D720F4DC135C3AE7C4E22DCA38FDB1EFD6A495FF8",
+      "_role": "RAA 1000 (old chain)"
+    },
+    {
+      "raa": 255,
+      "hda": 0,
+      "det": "200100303FC000059024E82A8FD0AFB8",
+      "public_key": "DDE3BCCEC7F3A66A1115F45D720F4DC135C3AE7C4E22DCA38FDB1EFD6A495FF8",
+      "_role": "RAA 255 (new chain)"
+    }
+  ],
+  "hdas": [
+    {
+      "raa": 1000,
+      "hda": 2000,
+      "det": "20010030FA07D005250842C2B6FC60B7",
+      "public_key": "13D9908A70925992ED546007D27F50DA68BA7217EF62AC3CCA784529FF10471C",
+      "_role": "HDA 1000/2000 (old chain)"
+    },
+    {
+      "raa": 255,
+      "hda": 14340,
+      "det": "200100303FF80405D162233E9B7EFEEE",
+      "public_key": "13D9908A70925992ED546007D27F50DA68BA7217EF62AC3CCA784529FF10471C",
+      "_role": "HDA 255/14340 (new chain)"
+    }
+  ],
+  "ua": [
+    {
+      "det": "20010030FA07D0054DFDC31103E51953",
+      "raa": 1000,
+      "hda": 2000,
+      "public_key": "8B65B265A496E32046CFA378B5A5FB2E877A97723E557CB5F0D21848BFE94477",
+      "_role": "slot 0 (old chain)"
+    },
+    {
+      "det": "20010030FA07D005527798DDDB7295E3",
+      "raa": 1000,
+      "hda": 2000,
+      "public_key": "F7D792E5DD000E8C05DCEEB357D03AF1770B0D7D6BFE429AABBD3C3F1CB16FE2",
+      "_role": "slot 1 (old chain)"
+    },
+    {
+      "det": "20010030FA07D005782A9F0E1C9BB7D5",
+      "raa": 1000,
+      "hda": 2000,
+      "public_key": "B80BC263962420FBF1454E61BB149FCD1BDC447195B12D63C69E7FB7AEAAC3AC",
+      "_role": "slot 2 (old chain)"
+    }
+  ]
+}
